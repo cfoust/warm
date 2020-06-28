@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Simple wrapper script for running commands in docker containers.
+
+# MIT License
+# 
+# Copyright (c) 2020 Caleb Foust
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+usage() {
+  cat << EOF
+Usage: warm [image] [command or arguments]
+Run a command inside a oneoff Docker container.
+
+Also looks for an executable file at these locations:
+[working directory]/.warm/[image]
+[git root directory]/.warm/[image]
+[$HOME]/.warm/[image]
+If it finds one, the output of running that file is used as arguments to the
+underlying Docker command.
+EOF
+exit 0
+}
+
+# Whether we're missing a command.
+missing() {
+  ! [ -x "$(command -v $1)" ]
+}
+
+if [ "$#" -eq 0 ]; then
+  usage
+fi
+
+image="${1}"
+shift 1
+rest="$@"
+
+# These are passed to the Docker daemon.
+args=""
+
+# Remove the container after running
+args="--rm "
+
+# For interactivity
+args+="-it "
+
+# Mount in the current directory
+current_dir="$(pwd)"
+args+="--volume=${current_dir}:${current_dir} "
+args+="-w ${current_dir} "
+
+# Make it so file reads/writes are done with the current user
+uid="$(id -u)"
+args+="--user $uid:$uid "
+
+# Kill the container when the init process dies (helpful sometimes)
+args+="--init "
+
+evaluated_args=""
+calculate_args() {
+  if ! [ -z "${evaluated_args}" ]; then
+    return 1
+  fi
+
+  if [ -x "$1" ]; then
+    evaluated_args="$($1)"
+    return 0
+  fi
+
+  return 1
+}
+
+calculate_args "$(pwd)/.warm/${image}"
+if ! missing "git"; then
+  calculate_args "$(git rev-parse --show-toplevel)/.warm/${image}"
+fi
+calculate_args "$HOME/.warm/${image}"
+
+if [ -z "${evaluated_args}" ]; then
+  args+="${image} "
+else
+  args+="${evaluated_args} "
+fi
+
+args+="${rest} "
+
+docker run $args
