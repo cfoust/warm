@@ -31,9 +31,9 @@ Usage: warm [image] [command or arguments]
 Run a command inside a oneoff Docker container.
 
 Also looks for an executable file at these locations:
-[working directory]/.warm/[image]
-[git root directory]/.warm/[image]
-[$HOME]/.warm/[image]
+[working directory]/warm/[image]
+[git root directory]/warm/[image]
+[$HOME]/warm/[image]
 If it finds one, the output of running that file is used as arguments to the
 underlying Docker command.
 EOF
@@ -80,19 +80,28 @@ calculate_args() {
     return 1
   fi
 
+  # If the file is executable, run it.
   if [ -x "$1" ]; then
     evaluated_args="$($1)"
+    return 0
+  fi
+
+  # If it's just a static file, cat it.
+  if [ -f "$1" ]; then
+    evaluated_args="$(cat $1)"
     return 0
   fi
 
   return 1
 }
 
-calculate_args "$(pwd)/.warm/${image}"
+calculate_args "$(pwd)/warm/${image}"
 if ! missing "git"; then
-  calculate_args "$(git rev-parse --show-toplevel)/.warm/${image}"
+  calculate_args "$(git rev-parse --show-toplevel)/warm/${image}"
 fi
 calculate_args "$HOME/.warm/${image}"
+calculate_args "$HOME/warm/${image}"
+calculate_args "$HOME/.local/share/warm/${image}"
 
 if [ -z "${evaluated_args}" ]; then
   args+="${image} "
